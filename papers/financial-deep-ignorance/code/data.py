@@ -6,12 +6,15 @@ categories, with labeled safe/dangerous annotations for training and
 evaluating the filtering pipeline.
 """
 
+import logging
 import numpy as np
 import json
 import os
 from typing import List, Dict, Tuple, Optional
 from dataclasses import dataclass, field, asdict
 from enum import Enum
+
+logger = logging.getLogger(__name__)
 
 
 class DangerCategory(Enum):
@@ -362,13 +365,23 @@ class FinancialDocumentGenerator:
         Args:
             documents: List of documents to save.
             filepath: Output file path.
+
+        Raises:
+            IOError: If the file cannot be written.
         """
         data = [doc.to_dict() for doc in documents]
-        with open(filepath, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2, ensure_ascii=False)
+        try:
+            os.makedirs(os.path.dirname(filepath) or ".", exist_ok=True)
+            with open(filepath, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+            logger.info("Saved %d documents to %s", len(documents), filepath)
+        except IOError as e:
+            logger.error("Failed to save dataset to %s: %s", filepath, e)
+            raise
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
     config = DatasetConfig(
         docs_per_category_safe=50,
         docs_per_category_dangerous=40,
@@ -379,13 +392,13 @@ if __name__ == "__main__":
     docs = gen.generate_dataset()
 
     train, val, test = gen.get_train_val_test_split(docs)
-    print(f"Total documents: {len(docs)}")
-    print(f"Train: {len(train)}, Val: {len(val)}, Test: {len(test)}")
+    logger.info("Total documents: %d", len(docs))
+    logger.info("Train: %d, Val: %d, Test: %d", len(train), len(val), len(test))
 
     # Count by label
     from collections import Counter
     label_counts = Counter(d.label.value for d in docs)
-    print(f"Labels: {dict(label_counts)}")
+    logger.info("Labels: %s", dict(label_counts))
 
     cat_counts = Counter(d.category.value if d.category else "none" for d in docs)
-    print(f"Categories: {dict(cat_counts)}")
+    logger.info("Categories: %s", dict(cat_counts))

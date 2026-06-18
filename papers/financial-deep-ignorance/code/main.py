@@ -8,6 +8,7 @@ alignment baselines (simulated).
 
 import os
 import argparse
+import logging
 import numpy as np
 import torch
 # Disable torch.compile/dynamo to avoid MemoryError from sympy on Python 3.14
@@ -16,6 +17,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from typing import Dict, List, Tuple
 from collections import Counter
+
+logger = logging.getLogger(__name__)
 
 from data import (
     FinancialDocumentGenerator,
@@ -73,7 +76,7 @@ def train_classifier(
     val_texts = [doc.text for doc in val_docs]
     val_labels = [label_map[doc.label.value] for doc in val_docs]
 
-    print(f"Training classifier on {len(train_docs)} documents...")
+    logger.info("Training classifier on %d documents...", len(train_docs))
 
     for epoch in range(n_epochs):
         classifier.train()
@@ -120,7 +123,7 @@ def train_classifier(
 
             val_acc = correct / max(total, 1)
             avg_loss = total_loss / max(n_batches, 1)
-            print(f"  Epoch {epoch+1}/{n_epochs} | Loss: {avg_loss:.4f} | Val Acc: {val_acc:.4f}")
+            logger.info("  Epoch %d/%d | Loss: %.4f | Val Acc: %.4f", epoch + 1, n_epochs, avg_loss, val_acc)
 
     return classifier, tokenizer
 
@@ -273,56 +276,56 @@ def run_full_evaluation(
     Generates data, trains classifier, evaluates filtering, and tests
     tamper resistance against attack vectors.
     """
-    print("=" * 70)
-    print("Financial Deep Ignorance: Full Evaluation Pipeline")
-    print("=" * 70)
+    logger.info("=" * 70)
+    logger.info("Financial Deep Ignorance: Full Evaluation Pipeline")
+    logger.info("=" * 70)
 
     # Generate dataset
-    print("\n[1/5] Generating synthetic dataset...")
+    logger.info("[1/5] Generating synthetic dataset...")
     gen = FinancialDocumentGenerator(config)
     docs = gen.generate_dataset()
     train_docs, val_docs, test_docs = gen.get_train_val_test_split(docs)
 
-    print(f"  Total: {len(docs)}, Train: {len(train_docs)}, Val: {len(val_docs)}, Test: {len(test_docs)}")
+    logger.info("  Total: %d, Train: %d, Val: %d, Test: %d", len(docs), len(train_docs), len(val_docs), len(test_docs))
     label_dist = Counter(d.label.value for d in docs)
-    print(f"  Label distribution: {dict(label_dist)}")
+    logger.info("  Label distribution: %s", dict(label_dist))
 
     # Train classifier
-    print("\n[2/5] Training Stage 2 semantic classifier...")
+    logger.info("[2/5] Training Stage 2 semantic classifier...")
     classifier, tokenizer = train_classifier(
         train_docs, val_docs, n_epochs=n_epochs, seed=config.seed
     )
 
     # Evaluate filtering
-    print("\n[3/5] Evaluating filtering pipeline on test set...")
+    logger.info("[3/5] Evaluating filtering pipeline on test set...")
     pipeline = FilteringPipeline(classifier=classifier, tokenizer=tokenizer)
     filter_metrics = evaluate_filtering(test_docs, pipeline)
 
-    print(f"  Precision: {filter_metrics['precision']:.4f}")
-    print(f"  Recall:    {filter_metrics['recall']:.4f}")
-    print(f"  F1:        {filter_metrics['f1']:.4f}")
-    print(f"  FPR:       {filter_metrics['false_positive_rate']:.4f}")
-    print(f"  Stage 1 flag rate: {filter_metrics['stage1_flag_rate']:.4f}")
-    print(f"  Stage 3 review rate: {filter_metrics['stage3_review_rate']:.4f}")
+    logger.info("  Precision: %.4f", filter_metrics['precision'])
+    logger.info("  Recall:    %.4f", filter_metrics['recall'])
+    logger.info("  F1:        %.4f", filter_metrics['f1'])
+    logger.info("  FPR:       %.4f", filter_metrics['false_positive_rate'])
+    logger.info("  Stage 1 flag rate: %.4f", filter_metrics['stage1_flag_rate'])
+    logger.info("  Stage 3 review rate: %.4f", filter_metrics['stage3_review_rate'])
 
     # Per-category
-    print("\n  Per-category recall:")
+    logger.info("  Per-category recall:")
     for cat, metrics in filter_metrics["category_metrics"].items():
-        print(f"    {cat}: {metrics['recall']:.4f}")
+        logger.info("    %s: %.4f", cat, metrics['recall'])
 
     # Attack evaluation
-    print("\n[4/5] Evaluating tamper resistance (filtered model)...")
+    logger.info("[4/5] Evaluating tamper resistance (filtered model)...")
     filtered_attacks = simulate_attack_evaluation(pipeline, is_filtered_model=True)
 
-    print("\n[5/5] Evaluating tamper resistance (aligned baseline)...")
+    logger.info("[5/5] Evaluating tamper resistance (aligned baseline)...")
     aligned_attacks = simulate_attack_evaluation(pipeline, is_filtered_model=False)
 
     # Summary table
-    print("\n" + "=" * 70)
-    print("RESULTS SUMMARY: Attack Success Rates")
-    print("=" * 70)
-    print(f"{'Attack Vector':<25} {'FinIgnorance':>15} {'RLHF Aligned':>15} {'Improvement':>15}")
-    print("-" * 70)
+    logger.info("=" * 70)
+    logger.info("RESULTS SUMMARY: Attack Success Rates")
+    logger.info("=" * 70)
+    logger.info("%-25s %15s %15s %15s", "Attack Vector", "FinIgnorance", "RLHF Aligned", "Improvement")
+    logger.info("-" * 70)
 
     total_filtered = 0
     total_aligned = 0
@@ -332,12 +335,12 @@ def run_full_evaluation(
         total_filtered += f_rate
         total_aligned += a_rate
         improvement = f"{(1 - f_rate / max(a_rate, 1e-8)) * 100:.1f}%"
-        print(f"{attack_type:<25} {f_rate:>15.3f} {a_rate:>15.3f} {improvement:>15}")
+        logger.info("%-25s %15.3f %15.3f %15s", attack_type, f_rate, a_rate, improvement)
 
     avg_filtered = total_filtered / 5
     avg_aligned = total_aligned / 5
-    print("-" * 70)
-    print(f"{'Average':<25} {avg_filtered:>15.3f} {avg_aligned:>15.3f} {(1 - avg_filtered / max(avg_aligned, 1e-8)) * 100:>14.1f}%")
+    logger.info("-" * 70)
+    logger.info("%-25s %15.3f %15.3f %14.1f%%", "Average", avg_filtered, avg_aligned, (1 - avg_filtered / max(avg_aligned, 1e-8)) * 100)
 
     # Compute FLOPS overhead estimate
     n_docs = len(docs)
@@ -348,22 +351,26 @@ def run_full_evaluation(
     stage3_cost = stage3_fraction * 0.003  # Only uncertain docs need review
     total_overhead = stage1_cost + stage2_cost + stage3_cost
 
-    print(f"\nEstimated FLOPS overhead: {total_overhead * 100:.2f}%")
-    print(f"  Stage 1 (keyword): {stage1_cost * 100:.2f}%")
-    print(f"  Stage 2 (semantic): {stage2_cost * 100:.2f}%")
-    print(f"  Stage 3 (review): {stage3_cost * 100:.2f}%")
-    print("=" * 70)
+    logger.info("Estimated FLOPS overhead: %.2f%%", total_overhead * 100)
+    logger.info("  Stage 1 (keyword): %.2f%%", stage1_cost * 100)
+    logger.info("  Stage 2 (semantic): %.2f%%", stage2_cost * 100)
+    logger.info("  Stage 3 (review): %.2f%%", stage3_cost * 100)
+    logger.info("=" * 70)
 
 
 def main():
     """Entry point: parse arguments and run evaluation."""
-    parser = argparse.ArgumentParser(description="Financial Deep Ignorance Evaluation")
-    parser.add_argument("--docs-safe", type=int, default=30, help="Safe docs per category")
-    parser.add_argument("--docs-dangerous", type=int, default=25, help="Dangerous docs per category")
-    parser.add_argument("--docs-ambiguous", type=int, default=10, help="Ambiguous docs per category")
-    parser.add_argument("--docs-general-safe", type=int, default=50, help="General safe docs")
-    parser.add_argument("--epochs", type=int, default=15, help="Training epochs")
-    parser.add_argument("--seed", type=int, default=42, help="Random seed")
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    )
+    parser = argparse.ArgumentParser(description="Financial Deep Ignorance Evaluation / 金融深度无知评估")
+    parser.add_argument("--docs-safe", type=int, default=30, help="每类别安全文档数 / Safe docs per category")
+    parser.add_argument("--docs-dangerous", type=int, default=25, help="每类别危险文档数 / Dangerous docs per category")
+    parser.add_argument("--docs-ambiguous", type=int, default=10, help="每类别模糊文档数 / Ambiguous docs per category")
+    parser.add_argument("--docs-general-safe", type=int, default=50, help="通用安全文档数 / General safe docs")
+    parser.add_argument("--epochs", type=int, default=15, help="训练轮数 / Training epochs")
+    parser.add_argument("--seed", type=int, default=42, help="随机种子 / Random seed")
     args = parser.parse_args()
 
     config = DatasetConfig(

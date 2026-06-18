@@ -10,12 +10,15 @@ Key components:
 - LambdaExecGRPO: The core training algorithm with lambda normalization
 """
 
+import logging
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from typing import Dict, List, Tuple, Optional
 from dataclasses import dataclass
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -287,13 +290,23 @@ class LambdaExecGRPO:
         self.grouper = PrefixGrouper()
 
     def _copy_policy(self) -> ExecutionPolicy:
-        """Create a frozen copy of the current policy."""
+        """Create a frozen copy of the current policy.
+
+        Returns:
+            A deep copy of the policy with gradients disabled.
+
+        Raises:
+            RuntimeError: If the policy copy fails.
+        """
         import copy
-        ref = copy.deepcopy(self.policy)
-        ref.eval()
-        for p in ref.parameters():
-            p.requires_grad = False
-        return ref
+        try:
+            ref = copy.deepcopy(self.policy)
+            ref.eval()
+            for p in ref.parameters():
+                p.requires_grad = False
+            return ref
+        except Exception as e:
+            raise RuntimeError(f"Failed to create reference policy copy: {e}") from e
 
     def compute_advantages(
         self, trajectories: List[Trajectory]
@@ -408,13 +421,21 @@ class LambdaExecGRPO:
 
         return metrics
 
-    def update_reference_policy(self):
-        """Update reference policy to current policy (periodic sync)."""
+    def update_reference_policy(self) -> None:
+        """Update reference policy to current policy (periodic sync).
+
+        Raises:
+            RuntimeError: If the update fails.
+        """
         import copy
-        self.ref_policy = copy.deepcopy(self.policy)
-        self.ref_policy.eval()
-        for p in self.ref_policy.parameters():
-            p.requires_grad = False
+        try:
+            self.ref_policy = copy.deepcopy(self.policy)
+            self.ref_policy.eval()
+            for p in self.ref_policy.parameters():
+                p.requires_grad = False
+            logger.info("Reference policy updated successfully.")
+        except Exception as e:
+            raise RuntimeError(f"Failed to update reference policy: {e}") from e
 
 
 if __name__ == "__main__":

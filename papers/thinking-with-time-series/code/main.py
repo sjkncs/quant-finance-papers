@@ -10,6 +10,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import logging
 import os
 import sys
 import time
@@ -20,6 +21,8 @@ import torch.optim as optim
 from torch.utils.data import DataLoader
 from collections import defaultdict
 from typing import Dict, List, Tuple
+
+logger = logging.getLogger(__name__)
 
 from data import build_dataloaders, MarketThinkBench, SyntheticMarketDataGenerator
 from model import TTSFullModel, RegimeHMM
@@ -92,7 +95,7 @@ def train_one_epoch(
         n_batches += 1
 
         if batch_idx % 5 == 0:
-            print(f"  Epoch {epoch} [{batch_idx}/{len(loader)}] loss={loss.item():.4f}")
+            logger.info("  Epoch %d [%d/%d] loss=%.4f", epoch, batch_idx, len(loader), loss.item())
 
     return total_loss / max(n_batches, 1)
 
@@ -151,13 +154,13 @@ def evaluate(
     return avg_metrics
 
 
-def run_training(args):
+def run_training(args: argparse.Namespace) -> TTSFullModel:
     """Full training and evaluation pipeline."""
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Using device: {device}")
+    logger.info("Using device: %s", device)
 
     # Build data
-    print("Building synthetic datasets...")
+    logger.info("Building synthetic datasets...")
     n_scenarios = args.n_scenarios
     train_loader, val_loader, test_loader, asset_names = build_dataloaders(
         n_scenarios=n_scenarios,
@@ -165,8 +168,8 @@ def run_training(args):
         seed=args.seed,
     )
     n_assets = len(asset_names)
-    print(f"Assets ({n_assets}): {asset_names}")
-    print(f"Train batches: {len(train_loader)}, Val batches: {len(val_loader)}, Test batches: {len(test_loader)}")
+    logger.info("Assets (%d): %s", n_assets, asset_names)
+    logger.info("Train batches: %d, Val batches: %d, Test batches: %d", len(train_loader), len(val_loader), len(test_loader))
 
     # Build model
     model = TTSFullModel(
@@ -182,7 +185,7 @@ def run_training(args):
 
     n_params = sum(p.numel() for p in model.parameters())
     n_trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    print(f"Model parameters: {n_params:,} (trainable: {n_trainable:,})")
+    logger.info("Model parameters: %d (trainable: %d)", n_params, n_trainable)
 
     # Optimizer
     optimizer = optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-4)
@@ -191,8 +194,8 @@ def run_training(args):
     # Training loop
     best_val_acc = 0.0
     for epoch in range(1, args.epochs + 1):
-        print(f"\n{'='*60}")
-        print(f"Epoch {epoch}/{args.epochs}")
+        logger.info("\n%s", "=" * 60)
+        logger.info("Epoch %d/%d", epoch, args.epochs)
         t0 = time.time()
 
         train_loss = train_one_epoch(model, train_loader, optimizer, device, epoch)
@@ -203,45 +206,48 @@ def run_training(args):
         val_acc = val_metrics.get("overall_accuracy", 0.0)
 
         elapsed = time.time() - t0
-        print(f"Epoch {epoch}: train_loss={train_loss:.4f}, val_acc={val_acc:.4f}, time={elapsed:.1f}s")
+        logger.info("Epoch %d: train_loss=%.4f, val_acc=%.4f, time=%.1fs", epoch, train_loss, val_acc, elapsed)
 
         if val_acc > best_val_acc:
             best_val_acc = val_acc
             if args.save_checkpoint:
-                torch.save(model.state_dict(), args.save_checkpoint)
-                print(f"  Saved checkpoint (best val_acc={val_acc:.4f})")
+                try:
+                    torch.save(model.state_dict(), args.save_checkpoint)
+                    logger.info("  Saved checkpoint (best val_acc=%.4f)", val_acc)
+                except OSError as e:
+                    logger.error("Failed to save checkpoint: %s", e)
 
     # Final evaluation
-    print(f"\n{'='*60}")
-    print("Final Evaluation on Test Set")
-    print(f"{'='*60}")
+    logger.info("\n%s", "=" * 60)
+    logger.info("Final Evaluation on Test Set")
+    logger.info("%s", "=" * 60)
 
     # Without regime-aware SC
     test_metrics_basic = evaluate(model, test_loader, device, use_regime_sc=False)
-    print("\nWithout Regime-Aware SC:")
+    logger.info("Without Regime-Aware SC:")
     for k, v in sorted(test_metrics_basic.items()):
-        print(f"  {k}: {v:.4f}")
+        logger.info("  %s: %.4f", k, v)
 
     # With regime-aware SC
     test_metrics_rsc = evaluate(model, test_loader, device, use_regime_sc=True)
-    print("\nWith Regime-Aware SC:")
+    logger.info("With Regime-Aware SC:")
     for k, v in sorted(test_metrics_rsc.items()):
-        print(f"  {k}: {v:.4f}")
+        logger.info("  %s: %.4f", k, v)
 
     # Ablation: number of trajectories
-    print("\n--- Trajectory Count Ablation ---")
+    logger.info("--- Trajectory Count Ablation ---")
     for n_traj in [4, 8, 16, 32]:
         model.n_trajectories = n_traj
         m = evaluate(model, test_loader, device, use_regime_sc=True)
-        print(f"  N={n_traj:2d}: overall_accuracy={m.get('overall_accuracy', 0):.4f}")
+        logger.info("  N=%2d: overall_accuracy=%.4f", n_traj, m.get('overall_accuracy', 0))
 
     return model
 
 
-def run_demo(args):
+def run_demo(args: argparse.Namespace) -> None:
     """Quick demo showing the TTS pipeline on a single scenario."""
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Device: {device}")
+    logger.info("Device: %s", device)
 
     # Small setup for quick demo
     n_assets = 5
@@ -256,7 +262,7 @@ def run_demo(args):
         n_trajectories=8,
     ).to(device)
 
-    print(f"Model parameters: {sum(p.numel() for p in model.parameters()):,}")
+    logger.info("Model parameters: %d", sum(p.numel() for p in model.parameters()))
 
     # Create synthetic input
     B = 2
@@ -271,47 +277,65 @@ def run_demo(args):
 
     traj = output["trajectories"]
     logits = output["logits"]
-    print(f"\nGenerated trajectories: shape={traj.shape}")
-    print(f"  (batch={B}, n_traj={model.n_trajectories}, horizon=30, n_assets={n_assets})")
+    logger.info("Generated trajectories: shape=%s", traj.shape)
+    logger.info("  (batch=%d, n_traj=%d, horizon=30, n_assets=%d)", B, model.n_trajectories, n_assets)
 
     # Analyze trajectory statistics
-    print("\nTrajectory statistics (batch item 0):")
+    logger.info("Trajectory statistics (batch item 0):")
     t0 = traj[0]  # (N, T, A)
     final_returns = t0[:, -1, :].mean(dim=-1)  # avg return across assets at final step
-    print(f"  Mean final return per trajectory: {final_returns.cpu().numpy().round(4)}")
-    print(f"  Std of final returns: {final_returns.std().item():.4f}")
-    print(f"  Fraction with negative outcome: {(final_returns < 0).float().mean().item():.2%}")
+    logger.info("  Mean final return per trajectory: %s", final_returns.cpu().numpy().round(4))
+    logger.info("  Std of final returns: %.4f", final_returns.std().item())
+    logger.info("  Fraction with negative outcome: %.2f%%", (final_returns < 0).float().mean().item() * 100)
 
     # Answer prediction
     probs = torch.softmax(logits, dim=-1)
-    print(f"\nAnswer probabilities (batch item 0): {probs[0].cpu().numpy().round(4)}")
-    print(f"  [negative, neutral, positive]")
+    logger.info("Answer probabilities (batch item 0): %s", probs[0].cpu().numpy().round(4))
+    logger.info("  [negative, neutral, positive]")
 
     # Regime detection on generated trajectories
     hmm = RegimeHMM()
+    regime_names = ["Low-Vol/Bull", "High-Vol/Bear", "Crisis"]
     for i in range(min(model.n_trajectories, 4)):
         traj_np = t0[i].cpu().numpy()
         regime, probs_r = hmm.detect_regime(traj_np, vix[0].item())
-        regime_names = ["Low-Vol/Bull", "High-Vol/Bear", "Crisis"]
-        print(f"  Traj {i}: regime={regime_names[regime]}, probs={probs_r.round(3)}")
+        logger.info("  Traj %d: regime=%s, probs=%s", i, regime_names[regime], probs_r.round(3))
 
-    print("\nDemo complete.")
+    logger.info("Demo complete.")
 
 
-def main():
-    parser = argparse.ArgumentParser(description="Thinking with Time-Series (TTS)")
-    parser.add_argument("--mode", type=str, default="demo", choices=["train", "eval", "demo"])
-    parser.add_argument("--epochs", type=int, default=10)
-    parser.add_argument("--batch_size", type=int, default=16)
-    parser.add_argument("--lr", type=float, default=1e-4)
-    parser.add_argument("--hidden_dim", type=int, default=64)
-    parser.add_argument("--cond_dim", type=int, default=128)
-    parser.add_argument("--diffusion_steps", type=int, default=4)
-    parser.add_argument("--n_trajectories", type=int, default=8)
-    parser.add_argument("--n_scenarios", type=int, default=420)
-    parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--save_checkpoint", type=str, default=None)
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Thinking with Time-Series (TTS) / 思维时序化：扩散轨迹生成训练与评估"
+    )
+    parser.add_argument("--mode", type=str, default="demo", choices=["train", "eval", "demo"],
+                        help="运行模式: train=训练, eval=评估, demo=快速演示")
+    parser.add_argument("--epochs", type=int, default=10,
+                        help="训练轮数")
+    parser.add_argument("--batch_size", type=int, default=16,
+                        help="批次大小")
+    parser.add_argument("--lr", type=float, default=1e-4,
+                        help="学习率")
+    parser.add_argument("--hidden_dim", type=int, default=64,
+                        help="隐藏层维度")
+    parser.add_argument("--cond_dim", type=int, default=128,
+                        help="条件向量维度")
+    parser.add_argument("--diffusion_steps", type=int, default=4,
+                        help="扩散步数")
+    parser.add_argument("--n_trajectories", type=int, default=8,
+                        help="每次查询生成的轨迹数")
+    parser.add_argument("--n_scenarios", type=int, default=420,
+                        help="MarketThinkBench场景数量")
+    parser.add_argument("--seed", type=int, default=42,
+                        help="随机种子")
+    parser.add_argument("--save_checkpoint", type=str, default=None,
+                        help="模型检查点保存路径")
     args = parser.parse_args()
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    )
 
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
@@ -321,7 +345,7 @@ def main():
     elif args.mode == "demo":
         run_demo(args)
     else:
-        print("Eval mode: please provide --save_checkpoint path")
+        logger.warning("Eval mode: please provide --save_checkpoint path")
 
 
 if __name__ == "__main__":

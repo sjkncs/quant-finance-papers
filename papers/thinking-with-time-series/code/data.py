@@ -90,7 +90,12 @@ class SyntheticMarketDataGenerator:
         d = np.sqrt(np.diag(corr))
         corr = corr / np.outer(d, d)
         np.fill_diagonal(corr, 1.0)
-        L = np.linalg.cholesky(corr)
+        try:
+            L = np.linalg.cholesky(corr)
+        except np.linalg.LinAlgError:
+            # Fallback: add jitter to diagonal for numerical stability
+            corr += np.eye(self.n_assets) * 1e-6
+            L = np.linalg.cholesky(corr)
 
         # Generate correlated returns with regime-dependent params
         log_returns = np.zeros((self.n_days, self.n_assets))

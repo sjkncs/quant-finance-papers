@@ -9,6 +9,7 @@ Implements the three-stage filtering pipeline:
 Also implements the attack vector evaluation framework for tamper resistance testing.
 """
 
+import logging
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -16,6 +17,8 @@ import numpy as np
 import re
 from typing import List, Dict, Tuple, Optional
 from dataclasses import dataclass
+
+logger = logging.getLogger(__name__)
 
 from data import (
     FinancialDocument,
@@ -464,6 +467,7 @@ class AttackVectorEvaluator:
 
 if __name__ == "__main__":
     # Test the filtering pipeline
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
     from data import FinancialDocumentGenerator, DatasetConfig
 
     config = DatasetConfig(
@@ -481,19 +485,19 @@ if __name__ == "__main__":
     # Report
     from collections import Counter
     decisions = Counter(r.final_decision for r in results)
-    print(f"Filtering decisions: {dict(decisions)}")
+    logger.info("Filtering decisions: %s", dict(decisions))
 
     s1_flagged = sum(1 for r in results if r.stage1_flagged)
-    print(f"Stage 1 flagged: {s1_flagged}/{len(results)}")
+    logger.info("Stage 1 flagged: %d/%d", s1_flagged, len(results))
 
     s3_review = sum(1 for r in results if r.stage3_review_required)
-    print(f"Stage 3 review required: {s3_review}")
+    logger.info("Stage 3 review required: %d", s3_review)
 
     # Test attack evaluator
     evaluator = AttackVectorEvaluator()
     prompts = evaluator.generate_attack_prompts("direct")
-    print(f"\nGenerated {len(prompts)} attack prompts")
+    logger.info("Generated %d attack prompts", len(prompts))
     # Simulate model responses
     responses = ["This is a safe response." for _ in prompts]
     eval_result = evaluator.evaluate_model(responses, "direct")
-    print(f"Attack evaluation: {eval_result}")
+    logger.info("Attack evaluation: %s", eval_result)

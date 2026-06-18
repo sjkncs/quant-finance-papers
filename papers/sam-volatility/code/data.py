@@ -138,26 +138,30 @@ def generate_sabr_surface(
         for i, k in enumerate(k_grid):
             # SABR implied vol approximation (Hagan formula, simplified)
             K_eff = S * np.exp(k)
-            z = nu / alpha * (S * K_eff) ** ((1 - beta) / 2) * k
-            x = np.log((np.sqrt(1 + z ** 2 / 4) + z / 2 + 1e-10) / (1 + 1e-10))
-            if abs(x) < 1e-6:
-                x = 1.0
-            else:
-                x = z / (x + 1e-10)
+            try:
+                z = nu / alpha * (S * K_eff) ** ((1 - beta) / 2) * k
+                x = np.log((np.sqrt(1 + z ** 2 / 4) + z / 2 + 1e-10) / (1 + 1e-10))
+                if abs(x) < 1e-6:
+                    x = 1.0
+                else:
+                    x = z / (x + 1e-10)
 
-            F = S * np.exp(0)  # forward ≈ spot for simplicity
-            mid = (F * K_eff) ** ((1 - beta) / 2)
-            term1 = alpha / (mid * (1 + (1 - beta) ** 2 / 24 * k ** 2))
-            term2 = x
+                F = S * np.exp(0)  # forward ≈ spot for simplicity
+                mid = (F * K_eff) ** ((1 - beta) / 2)
+                term1 = alpha / (mid * (1 + (1 - beta) ** 2 / 24 * k ** 2))
+                term2 = x
 
-            # Correction terms
-            corr = 1 + (
-                (1 - beta) ** 2 / 24 * alpha ** 2 / mid ** 2
-                + rho * beta * nu * alpha / (4 * mid)
-                + (2 - 3 * rho ** 2) / 24 * nu ** 2
-            ) * tau
+                # Correction terms
+                corr = 1 + (
+                    (1 - beta) ** 2 / 24 * alpha ** 2 / mid ** 2
+                    + rho * beta * nu * alpha / (4 * mid)
+                    + (2 - 3 * rho ** 2) / 24 * nu ** 2
+                ) * tau
 
-            iv_surface[i, j] = max(term1 * term2 * corr, 0.01)
+                iv_surface[i, j] = max(term1 * term2 * corr, 0.01)
+            except (FloatingPointError, OverflowError, ValueError):
+                # Fallback to simple ATM vol when SABR approximation fails
+                iv_surface[i, j] = alpha
 
     return k_grid, tau_grid, iv_surface
 

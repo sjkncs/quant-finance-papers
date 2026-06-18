@@ -27,6 +27,7 @@ class SinusoidalPositionEmbedding(nn.Module):
         self.dim = dim
 
     def forward(self, t: torch.Tensor) -> torch.Tensor:
+        """Compute sinusoidal positional embeddings for diffusion timestep t."""
         half = self.dim // 2
         emb = math.log(10000) / (half - 1)
         emb = torch.exp(torch.arange(half, device=t.device, dtype=torch.float32) * -emb)

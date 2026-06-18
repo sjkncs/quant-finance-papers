@@ -12,10 +12,13 @@ Key features:
 - Implementation shortfall calculation
 """
 
+import logging
 import numpy as np
 import pandas as pd
 from typing import Dict, List, Tuple, Optional
 from dataclasses import dataclass, field
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -336,15 +339,20 @@ def build_training_batch(
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+
     config = OrderConfig(num_orders=1000, seed=42)
     orders = generate_synthetic_orders(config)
-    print(f"Generated {len(orders)} synthetic orders")
-    print(f"Order size range: ${orders['size_usd'].min():,.0f} - ${orders['size_usd'].max():,.0f}")
-    print(f"VIX levels: {orders['vix_level'].value_counts().to_dict()}")
+    logger.info(f"Generated {len(orders)} synthetic orders")
+    logger.info(f"Order size range: ${orders['size_usd'].min():,.0f} - ${orders['size_usd'].max():,.0f}")
+    logger.info(f"VIX levels: {orders['vix_level'].value_counts().to_dict()}")
 
     # Simulate a few orders
     for i in range(3):
-        result = simulate_order_execution(orders.iloc[i], seed=42)
-        print(f"\nOrder {result['order_id']}: "
-              f"IS={result['impl_shortfall_bps']:.2f} bps, "
-              f"fill={result['fill_rate']:.1%}")
+        try:
+            result = simulate_order_execution(orders.iloc[i], seed=42)
+            logger.info(f"Order {result['order_id']}: "
+                  f"IS={result['impl_shortfall_bps']:.2f} bps, "
+                  f"fill={result['fill_rate']:.1%}")
+        except Exception as e:
+            logger.error(f"Failed to simulate order {i}: {e}")

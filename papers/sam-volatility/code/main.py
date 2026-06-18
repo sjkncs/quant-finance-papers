@@ -10,6 +10,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import logging
 import time
 import numpy as np
 import torch
@@ -17,6 +18,8 @@ import torch.nn as nn
 import torch.optim as optim
 from collections import defaultdict
 from typing import Dict, List, Tuple
+
+logger = logging.getLogger(__name__)
 
 from data import (
     build_samvol_dataloaders,
@@ -72,11 +75,12 @@ def train_one_epoch(
         n_batches += 1
 
         if batch_idx % 5 == 0:
-            print(
-                f"  Epoch {epoch} [{batch_idx}/{len(loader)}] "
-                f"loss={losses['total_loss'].item():.6f} "
-                f"recon={losses['recon_loss'].item():.6f} "
-                f"arb={losses['arb_loss'].item():.6f}"
+            logger.info(
+                "  Epoch %d [%d/%d] loss=%.6f recon=%.6f arb=%.6f",
+                epoch, batch_idx, len(loader),
+                losses['total_loss'].item(),
+                losses['recon_loss'].item(),
+                losses['arb_loss'].item(),
             )
 
     return {k: v / max(n_batches, 1) for k, v in total_metrics.items()}
@@ -119,19 +123,20 @@ def evaluate(
     return avg
 
 
-def run_training(args):
+def run_training(args: argparse.Namespace) -> SAMVolModel:
     """Full training and evaluation pipeline."""
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Device: {device}")
+    logger.info("Device: %s", device)
 
     # Build data
-    print("Building synthetic volatility surface data...")
+    logger.info("Building synthetic volatility surface data...")
     train_loader, val_loader, test_loader = build_samvol_dataloaders(
         n_surfaces=args.n_surfaces,
         batch_size=args.batch_size,
         seed=args.seed,
     )
-    print(f"Train: {len(train_loader)} batches, Val: {len(val_loader)}, Test: {len(test_loader)}")
+    logger.info("Train: %d batches, Val: %d, Test: %d",
+                len(train_loader), len(val_loader), len(test_loader))
 
     # Build model
     model = SAMVolModel(
@@ -146,7 +151,7 @@ def run_training(args):
     ).to(device)
 
     n_params = sum(p.numel() for p in model.parameters())
-    print(f"SAM-Vol parameters: {n_params:,}")
+    logger.info("SAM-Vol parameters: %d", n_params)
 
     # Optimizer
     optimizer = optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-4)
@@ -155,8 +160,8 @@ def run_training(args):
     # Training loop
     best_val_rmse = float("inf")
     for epoch in range(1, args.epochs + 1):
-        print(f"\n{'='*60}")
-        print(f"Epoch {epoch}/{args.epochs}")
+        logger.info("=" * 60)
+        logger.info("Epoch %d/%d", epoch, args.epochs)
         t0 = time.time()
 
         train_metrics = train_one_epoch(model, train_loader, optimizer, device, epoch)
@@ -166,38 +171,37 @@ def run_training(args):
         val_rmse = val_metrics["rmse"]
 
         elapsed = time.time() - t0
-        print(
-            f"Epoch {epoch}: "
-            f"train_loss={train_metrics['total_loss']:.6f}, "
-            f"val_rmse={val_rmse:.4f}, "
-            f"val_arb={val_metrics['arb_violations']:.4f}, "
-            f"time={elapsed:.1f}s"
+        logger.info(
+            "Epoch %d: train_loss=%.6f, val_rmse=%.4f, val_arb=%.4f, time=%.1fs",
+            epoch, train_metrics['total_loss'], val_rmse,
+            val_metrics['arb_violations'], elapsed,
         )
 
         if val_rmse < best_val_rmse:
             best_val_rmse = val_rmse
-            print(f"  New best val RMSE: {val_rmse:.4f}")
+            logger.info("  New best val RMSE: %.4f", val_rmse)
 
     # Final test evaluation
-    print(f"\n{'='*60}")
-    print("Test Set Evaluation")
-    print(f"{'='*60}")
+    logger.info("=" * 60)
+    logger.info("Test Set Evaluation")
+    logger.info("=" * 60)
 
     test_metrics = evaluate(model, test_loader, device)
-    print(f"\nSAM-Vol Test Results:")
-    print(f"  RMSE:              {test_metrics['rmse']:.4f} (+/- {test_metrics['rmse_std']:.4f})")
-    print(f"  MAE:               {test_metrics['mae']:.4f}")
-    print(f"  Arb Violations:    {test_metrics['arb_violations']:.4%}")
+    logger.info("SAM-Vol Test Results:")
+    logger.info("  RMSE:              %.4f (+/- %.4f)", test_metrics['rmse'], test_metrics['rmse_std'])
+    logger.info("  MAE:               %.4f", test_metrics['mae'])
+    logger.info("  Arb Violations:    %.4f%%", test_metrics['arb_violations'] * 100)
 
     # Baseline comparison: SVI-like interpolation
-    print(f"\n--- Baseline Comparison (Linear Interpolation) ---")
+    logger.info("--- Baseline Comparison (Linear Interpolation) ---")
     baseline_metrics = evaluate_baseline(test_loader, device)
-    print(f"  Linear Interp RMSE: {baseline_metrics['rmse']:.4f}")
-    print(f"  Linear Interp MAE:  {baseline_metrics['mae']:.4f}")
-    print(f"  Improvement:        {(baseline_metrics['rmse'] - test_metrics['rmse']) / baseline_metrics['rmse'] * 100:.1f}%")
+    logger.info("  Linear Interp RMSE: %.4f", baseline_metrics['rmse'])
+    logger.info("  Linear Interp MAE:  %.4f", baseline_metrics['mae'])
+    logger.info("  Improvement:        %.1f%%",
+                (baseline_metrics['rmse'] - test_metrics['rmse']) / baseline_metrics['rmse'] * 100)
 
     # Ablation: number of observed quotes
-    print(f"\n--- Quote Density Ablation ---")
+    logger.info("--- Quote Density Ablation ---")
     for n_quotes in [10, 20, 40, 60]:
         ablation_ds = SAMVolDataset(
             n_surfaces=50,
@@ -208,7 +212,7 @@ def run_training(args):
             ablation_ds, batch_size=16, shuffle=False
         )
         m = evaluate(model, ablation_loader, device)
-        print(f"  N_quotes~{n_quotes}: RMSE={m['rmse']:.4f}, Arb={m['arb_violations']:.4%}")
+        logger.info("  N_quotes~%d: RMSE=%.4f, Arb=%.4f%%", n_quotes, m['rmse'], m['arb_violations'] * 100)
 
     return model
 
@@ -262,10 +266,10 @@ def evaluate_baseline(
     return {"rmse": np.mean(all_rmse), "mae": np.mean(all_mae)}
 
 
-def run_demo(args):
+def run_demo(args: argparse.Namespace) -> None:
     """Quick demo showing SAM-Vol surface reconstruction."""
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Device: {device}")
+    logger.info("Device: %s", device)
 
     # Small model for demo
     model = SAMVolModel(
@@ -279,7 +283,7 @@ def run_demo(args):
     ).to(device)
 
     n_params = sum(p.numel() for p in model.parameters())
-    print(f"Model parameters: {n_params:,}")
+    logger.info("Model parameters: %d", n_params)
 
     # Generate one surface
     rng = np.random.default_rng(42)
@@ -288,9 +292,9 @@ def run_demo(args):
     )
     quotes = sample_sparse_quotes(k_grid, tau_grid, iv_surface, n_quotes=30, S=100.0, rng=rng)
 
-    print(f"\nTrue surface shape: {iv_surface.shape}")
-    print(f"Number of observed quotes: {len(quotes)}")
-    print(f"IV range: [{iv_surface.min():.4f}, {iv_surface.max():.4f}]")
+    logger.info("True surface shape: %s", iv_surface.shape)
+    logger.info("Number of observed quotes: %d", len(quotes))
+    logger.info("IV range: [%.4f, %.4f]", iv_surface.min(), iv_surface.max())
 
     # Build input tensors
     n_quotes = len(quotes)
@@ -326,51 +330,69 @@ def run_demo(args):
         output = model(point_cloud, mask_t, eval_k_t, eval_tau_t)
 
     iv_pred = output["iv_surface"][0].cpu().numpy()
-    print(f"\nPredicted surface shape: {iv_pred.shape}")
-    print(f"Predicted IV range: [{iv_pred.min():.4f}, {iv_pred.max():.4f}]")
+    logger.info("Predicted surface shape: %s", iv_pred.shape)
+    logger.info("Predicted IV range: [%.4f, %.4f]", iv_pred.min(), iv_pred.max())
 
     # Compare with ground truth
     rmse = np.sqrt(np.mean((iv_pred - iv_surface) ** 2))
     mae = np.mean(np.abs(iv_pred - iv_surface))
-    print(f"\nUntrained model results (random weights):")
-    print(f"  RMSE: {rmse:.4f}")
-    print(f"  MAE:  {mae:.4f}")
-    print("  (High error expected — model has not been trained)")
+    logger.info("Untrained model results (random weights):")
+    logger.info("  RMSE: %.4f", rmse)
+    logger.info("  MAE:  %.4f", mae)
+    logger.info("  (High error expected — model has not been trained)")
 
     # Print surface cross-section
-    print("\nSurface cross-section (ATM, k=0):")
+    logger.info("Surface cross-section (ATM, k=0):")
     atm_idx = 10  # middle of grid
     for j in range(min(5, iv_pred.shape[1])):
-        print(
-            f"  tau={eval_tau[j]:.3f}: "
-            f"true={iv_surface[atm_idx, j]:.4f}, "
-            f"pred={iv_pred[atm_idx, j]:.4f}"
-        )
+        logger.info("  tau=%.3f: true=%.4f, pred=%.4f",
+                    eval_tau[j], iv_surface[atm_idx, j], iv_pred[atm_idx, j])
 
     # Arbitrage check
     arb_rate = model.count_arbitrage_violations(
         output["iv_surface"], 20, min(10, iv_pred.shape[1])
     )
-    print(f"\nArbitrage violation rate: {arb_rate:.2%}")
+    logger.info("Arbitrage violation rate: %.2f%%", arb_rate * 100)
 
-    print("\nDemo complete. Run with --mode train for full training.")
+    logger.info("Demo complete. Run with --mode train for full training.")
 
 
-def main():
-    parser = argparse.ArgumentParser(description="SAM-Vol: Volatility Surface Reconstruction")
-    parser.add_argument("--mode", type=str, default="demo", choices=["train", "eval", "demo"])
-    parser.add_argument("--epochs", type=int, default=15)
-    parser.add_argument("--batch_size", type=int, default=16)
-    parser.add_argument("--lr", type=float, default=3e-4)
-    parser.add_argument("--d_model", type=int, default=64)
-    parser.add_argument("--n_encoder_layers", type=int, default=2)
-    parser.add_argument("--n_heads", type=int, default=4)
-    parser.add_argument("--hidden_dim", type=int, default=128)
-    parser.add_argument("--n_surface_layers", type=int, default=4)
-    parser.add_argument("--bandwidth", type=float, default=0.15)
-    parser.add_argument("--arb_weight", type=float, default=10.0)
-    parser.add_argument("--n_surfaces", type=int, default=500)
-    parser.add_argument("--seed", type=int, default=42)
+def main() -> None:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    )
+
+    parser = argparse.ArgumentParser(
+        description="SAM-Vol: 波动率曲面重建训练与评估",
+    )
+    parser.add_argument("--mode", type=str, default="demo",
+                        choices=["train", "eval", "demo"],
+                        help="运行模式: train=训练, eval=评估, demo=快速演示")
+    parser.add_argument("--epochs", type=int, default=15,
+                        help="训练轮数 (默认: 15)")
+    parser.add_argument("--batch_size", type=int, default=16,
+                        help="批量大小 (默认: 16)")
+    parser.add_argument("--lr", type=float, default=3e-4,
+                        help="学习率 (默认: 3e-4)")
+    parser.add_argument("--d_model", type=int, default=64,
+                        help="模型嵌入维度 (默认: 64)")
+    parser.add_argument("--n_encoder_layers", type=int, default=2,
+                        help="编码器层数 (默认: 2)")
+    parser.add_argument("--n_heads", type=int, default=4,
+                        help="注意力头数 (默认: 4)")
+    parser.add_argument("--hidden_dim", type=int, default=128,
+                        help="隐层维度 (默认: 128)")
+    parser.add_argument("--n_surface_layers", type=int, default=4,
+                        help="曲面解码器层数 (默认: 4)")
+    parser.add_argument("--bandwidth", type=float, default=0.15,
+                        help="局部插值核带宽 (默认: 0.15)")
+    parser.add_argument("--arb_weight", type=float, default=10.0,
+                        help="无套利正则化权重 (默认: 10.0)")
+    parser.add_argument("--n_surfaces", type=int, default=500,
+                        help="合成曲面数量 (默认: 500)")
+    parser.add_argument("--seed", type=int, default=42,
+                        help="随机种子 (默认: 42)")
     args = parser.parse_args()
 
     torch.manual_seed(args.seed)
@@ -381,7 +403,7 @@ def main():
     elif args.mode == "demo":
         run_demo(args)
     else:
-        print("Eval mode requires a trained model checkpoint.")
+        logger.warning("Eval mode requires a trained model checkpoint.")
 
 
 if __name__ == "__main__":

@@ -8,12 +8,15 @@ Implements:
 4. InvestSoT training framework with diversity reward
 """
 
+import logging
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 from typing import List, Dict, Tuple, Optional
 from dataclasses import dataclass
+
+logger = logging.getLogger(__name__)
 
 from data import ExpertRole, AssetClass, Conviction
 
@@ -450,7 +453,7 @@ class InvestSoTTrainer:
 
             avg_loss = epoch_loss / max(n_batches, 1)
             losses.append(avg_loss)
-            print(f"  Phase 1 Epoch {epoch+1}/{n_epochs} | Loss: {avg_loss:.4f}")
+            logger.info("  Phase 1 Epoch %d/%d | Loss: %.4f", epoch + 1, n_epochs, avg_loss)
 
         return losses
 
@@ -503,7 +506,7 @@ class InvestSoTTrainer:
 
             if (step + 1) % 20 == 0:
                 avg_r = np.mean(rewards[-20:])
-                print(f"  Phase 2 Step {step+1}/{n_steps} | Avg Reward: {avg_r:.4f}")
+                logger.info("  Phase 2 Step %d/%d | Avg Reward: %.4f", step + 1, n_steps, avg_r)
 
         return rewards
 
@@ -555,32 +558,33 @@ class InvestSoTTrainer:
 
             if (round_idx + 1) % 10 == 0:
                 avg_l = np.mean(losses[-10:])
-                print(f"  Phase 3 Round {round_idx+1}/{n_rounds} | Avg Loss: {avg_l:.4f}")
+                logger.info("  Phase 3 Round %d/%d | Avg Loss: %.4f", round_idx + 1, n_rounds, avg_l)
 
         return losses
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
     # Quick test of model architecture
     model = MultiExpertReasoningModel(input_dim=32, hidden_dim=128, n_heads=4, n_layers=2)
     x = torch.randn(2, 10, 32)  # batch=2, seq=10, dim=32
     output = model(x, return_attention=True)
 
-    print("Model output keys:", list(output.keys()))
-    print("Classification shape:", output["classification"].shape)
-    print("Conviction shape:", output["conviction"].shape)
-    print("Confidence shape:", output["confidence"].shape)
-    print("Expert weights shape:", output["expert_weights"].shape)
-    print("Hidden states count:", len(output["hidden_states"]))
+    logger.info("Model output keys: %s", list(output.keys()))
+    logger.info("Classification shape: %s", output["classification"].shape)
+    logger.info("Conviction shape: %s", output["conviction"].shape)
+    logger.info("Confidence shape: %s", output["confidence"].shape)
+    logger.info("Expert weights shape: %s", output["expert_weights"].shape)
+    logger.info("Hidden states count: %d", len(output["hidden_states"]))
 
     # Test perspective variance
     analyzer = PerspectiveVarianceAnalyzer()
     pv, dists = analyzer.compute_perspective_variance(output["hidden_states"])
-    print(f"Perspective variance: {pv:.6f}")
-    print(f"Distance array length: {len(dists)}")
+    logger.info("Perspective variance: %.6f", pv)
+    logger.info("Distance array length: %d", len(dists))
 
     # Test scaffolding
     scaffolding = InvestmentScaffolding()
     test_text = "The growth opportunity is compelling but risk exposure to rates and inflation is elevated."
     div_score = scaffolding.compute_diversity_score(test_text)
-    print(f"Diversity score: {div_score:.2f}")
+    logger.info("Diversity score: %.2f", div_score)

@@ -7,11 +7,14 @@ Generates synthetic investment reasoning datasets including:
 - Investment theses with bull/bear/risk/macro annotations
 """
 
+import logging
 import numpy as np
 import json
 from typing import List, Dict, Tuple, Optional
 from dataclasses import dataclass, field, asdict
 from enum import Enum
+
+logger = logging.getLogger(__name__)
 
 
 class ExpertRole(Enum):
@@ -367,47 +370,58 @@ class InvestmentDataGenerator:
             debates: List of debate objects.
             qa_list: List of QA objects.
             output_dir: Output directory path.
+
+        Raises:
+            IOError: If files cannot be written.
         """
         import os
-        os.makedirs(output_dir, exist_ok=True)
+        try:
+            os.makedirs(output_dir, exist_ok=True)
 
-        # Save debates
-        debate_data = [d.to_dict() for d in debates]
-        with open(os.path.join(output_dir, "debates.json"), "w") as f:
-            json.dump(debate_data, f, indent=2)
+            # Save debates
+            debate_data = [d.to_dict() for d in debates]
+            with open(os.path.join(output_dir, "debates.json"), "w") as f:
+                json.dump(debate_data, f, indent=2)
 
-        # Save QA
-        qa_data = [q.to_dict() for q in qa_list]
-        with open(os.path.join(output_dir, "financial_qa.json"), "w") as f:
-            json.dump(qa_data, f, indent=2)
+            # Save QA
+            qa_data = [q.to_dict() for q in qa_list]
+            with open(os.path.join(output_dir, "financial_qa.json"), "w") as f:
+                json.dump(qa_data, f, indent=2)
 
-        # Save SFT-formatted debates
-        sft_data = [self.format_debate_for_sft(d) for d in debates]
-        with open(os.path.join(output_dir, "sft_debates.json"), "w") as f:
-            json.dump(sft_data, f, indent=2)
+            # Save SFT-formatted debates
+            sft_data = [self.format_debate_for_sft(d) for d in debates]
+            with open(os.path.join(output_dir, "sft_debates.json"), "w") as f:
+                json.dump(sft_data, f, indent=2)
+
+            logger.info("Saved %d debates, %d QA pairs, %d SFT examples to %s",
+                       len(debates), len(qa_list), len(sft_data), output_dir)
+        except IOError as e:
+            logger.error("Failed to save datasets to %s: %s", output_dir, e)
+            raise
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
     config = DatasetConfig(n_debates_per_asset=10, n_qa_per_asset=15)
     gen = InvestmentDataGenerator(config)
 
     debates = gen.generate_debates()
     qa_list = gen.generate_financial_qa()
 
-    print(f"Generated {len(debates)} debates")
-    print(f"Generated {len(qa_list)} QA pairs")
+    logger.info("Generated %d debates", len(debates))
+    logger.info("Generated %d QA pairs", len(qa_list))
 
     from collections import Counter
     asset_dist = Counter(d.asset_class.value for d in debates)
-    print(f"Debates by asset: {dict(asset_dist)}")
+    logger.info("Debates by asset: %s", dict(asset_dist))
 
     conv_dist = Counter(d.conviction.value for d in debates)
-    print(f"Conviction distribution: {dict(conv_dist)}")
+    logger.info("Conviction distribution: %s", dict(conv_dist))
 
     diff_dist = Counter(q.difficulty for q in qa_list)
-    print(f"QA difficulty: {dict(diff_dist)}")
+    logger.info("QA difficulty: %s", dict(diff_dist))
 
     # Show a formatted example
     example = gen.format_debate_for_sft(debates[0])
-    print(f"\nExample SFT prompt:\n{example['prompt'][:200]}...")
-    print(f"Example SFT completion:\n{example['completion'][:300]}...")
+    logger.info("Example SFT prompt: %s...", example['prompt'][:200])
+    logger.info("Example SFT completion: %s...", example['completion'][:300])

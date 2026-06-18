@@ -5,10 +5,13 @@ Generates realistic multi-asset portfolio data with regime-switching dynamics,
 correlation shifts, and fat-tailed returns for training and evaluation.
 """
 
+import logging
 import numpy as np
 import pandas as pd
 from typing import Tuple, Dict, Optional
 from dataclasses import dataclass
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -271,14 +274,15 @@ class PortfolioStateBuilder:
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
     config = PortfolioConfig(n_equities=10, n_bonds=5, n_commodities=3, n_fx=2)
     data_gen = SyntheticPortfolioData(config, seed=42)
     data = data_gen.generate()
 
-    print(f"Generated {data['returns'].shape[0]} days x {data['returns'].shape[1]} assets")
-    print(f"Return range: [{data['returns'].min():.4f}, {data['returns'].max():.4f}]")
-    print(f"Mean daily return: {data['returns'].mean():.6f}")
-    print(f"Crisis days: {data['regimes'].sum()} / {len(data['regimes'])}")
+    logger.info("Generated %d days x %d assets", data['returns'].shape[0], data['returns'].shape[1])
+    logger.info("Return range: [%.4f, %.4f]", data['returns'].min(), data['returns'].max())
+    logger.info("Mean daily return: %.6f", data['returns'].mean())
+    logger.info("Crisis days: %d / %d", data['regimes'].sum(), len(data['regimes']))
 
     train, val, test = data_gen.get_splits()
-    print(f"Train: {train['returns'].shape}, Val: {val['returns'].shape}, Test: {test['returns'].shape}")
+    logger.info("Train: %s, Val: %s, Test: %s", train['returns'].shape, val['returns'].shape, test['returns'].shape)

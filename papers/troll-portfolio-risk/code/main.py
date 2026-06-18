@@ -9,6 +9,7 @@ performance metrics (Sharpe, drawdown, returns, stability).
 import os
 import sys
 import argparse
+import logging
 import numpy as np
 import torch
 # Disable torch.compile/dynamo to avoid MemoryError from sympy on Python 3.14
@@ -16,6 +17,8 @@ torch._dynamo.config.suppress_errors = True
 import torch.nn.functional as F
 from typing import Dict, Tuple, List
 from dataclasses import dataclass
+
+logger = logging.getLogger(__name__)
 
 # Local imports
 from data import SyntheticPortfolioData, PortfolioConfig, PortfolioStateBuilder
@@ -311,11 +314,9 @@ def train_troll_risk(
             policy_collapses += 1
 
         if (episode + 1) % 20 == 0:
-            print(
-                f"Episode {episode+1}/{config.n_episodes} | "
-                f"Return: {episode_reward_sum:.4f} | "
-                f"Sharpe: {ep_sharpe:.3f} | "
-                f"MaxDD: {ep_max_dd:.4f}"
+            logger.info(
+                "Episode %d/%d | Return: %.4f | Sharpe: %.3f | MaxDD: %.4f",
+                episode + 1, config.n_episodes, episode_reward_sum, ep_sharpe, ep_max_dd,
             )
 
     return {
@@ -337,24 +338,24 @@ def evaluate_on_test(
 
     Trains both methods and prints comparative performance metrics.
     """
-    print("=" * 70)
-    print("TROLL-Risk vs PPO-Clip: Comparative Evaluation")
-    print("=" * 70)
+    logger.info("=" * 70)
+    logger.info("TROLL-Risk vs PPO-Clip: Comparative Evaluation")
+    logger.info("=" * 70)
 
     # TROLL-Risk
-    print("\n--- Training TROLL-Risk ---")
+    logger.info("--- Training TROLL-Risk ---")
     troll_results = train_troll_risk(config, data_config, use_trust_region=True)
 
     # PPO baseline
-    print("\n--- Training PPO-Clip Baseline ---")
+    logger.info("--- Training PPO-Clip Baseline ---")
     ppo_results = train_troll_risk(config, data_config, use_trust_region=False)
 
     # Report
-    print("\n" + "=" * 70)
-    print("RESULTS SUMMARY")
-    print("=" * 70)
-    print(f"{'Metric':<25} {'TROLL-Risk':>15} {'PPO-Clip':>15} {'Improvement':>15}")
-    print("-" * 70)
+    logger.info("=" * 70)
+    logger.info("RESULTS SUMMARY")
+    logger.info("=" * 70)
+    logger.info("%-25s %15s %15s %15s", "Metric", "TROLL-Risk", "PPO-Clip", "Improvement")
+    logger.info("-" * 70)
 
     metrics = [
         ("Final Sharpe", "final_sharpe", True),
@@ -371,11 +372,11 @@ def evaluate_on_test(
             impr = ppo_val - troll_val
 
         if isinstance(troll_val, float):
-            print(f"{name:<25} {troll_val:>15.4f} {ppo_val:>15.4f} {impr:>+15.4f}")
+            logger.info("%-25s %15.4f %15.4f %+.4f", name, troll_val, ppo_val, impr)
         else:
-            print(f"{name:<25} {troll_val:>15d} {ppo_val:>15d} {impr:>+15d}")
+            logger.info("%-25s %15d %15d %d", name, troll_val, ppo_val, impr)
 
-    print("=" * 70)
+    logger.info("=" * 70)
 
     # Stability analysis
     troll_sharpes = np.array(troll_results["episode_sharpes"])
@@ -384,23 +385,27 @@ def evaluate_on_test(
     if len(troll_sharpes) > 0 and len(ppo_sharpes) > 0:
         troll_kl_stability = np.std(np.diff(troll_sharpes))
         ppo_kl_stability = np.std(np.diff(ppo_sharpes))
-        print(f"\nTraining Stability (std of Sharpe diffs):")
-        print(f"  TROLL-Risk: {troll_kl_stability:.4f}")
-        print(f"  PPO-Clip:   {ppo_kl_stability:.4f}")
-        print(f"  Improvement: {(1 - troll_kl_stability / (ppo_kl_stability + 1e-8)) * 100:.1f}%")
+        logger.info("Training Stability (std of Sharpe diffs):")
+        logger.info("  TROLL-Risk: %.4f", troll_kl_stability)
+        logger.info("  PPO-Clip:   %.4f", ppo_kl_stability)
+        logger.info("  Improvement: %.1f%%", (1 - troll_kl_stability / (ppo_kl_stability + 1e-8)) * 100)
 
 
 def main():
     """Entry point: parse arguments and run evaluation."""
-    parser = argparse.ArgumentParser(description="TROLL-Risk Portfolio Optimization")
-    parser.add_argument("--episodes", type=int, default=60, help="Number of training episodes")
-    parser.add_argument("--steps", type=int, default=128, help="Steps per episode")
-    parser.add_argument("--n-equities", type=int, default=15, help="Number of equity assets")
-    parser.add_argument("--n-bonds", type=int, default=5, help="Number of bond assets")
-    parser.add_argument("--n-commodities", type=int, default=3, help="Number of commodity assets")
-    parser.add_argument("--n-fx", type=int, default=2, help="Number of FX assets")
-    parser.add_argument("--seed", type=int, default=42, help="Random seed")
-    parser.add_argument("--sparse-k", type=int, default=8, help="Sparse subset size")
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    )
+    parser = argparse.ArgumentParser(description="TROLL-Risk Portfolio Optimization / TROLL-Risk组合优化训练与评估")
+    parser.add_argument("--episodes", type=int, default=60, help="训练回合数 / Number of training episodes")
+    parser.add_argument("--steps", type=int, default=128, help="每回合步数 / Steps per episode")
+    parser.add_argument("--n-equities", type=int, default=15, help="股票资产数量 / Number of equity assets")
+    parser.add_argument("--n-bonds", type=int, default=5, help="债券资产数量 / Number of bond assets")
+    parser.add_argument("--n-commodities", type=int, default=3, help="商品资产数量 / Number of commodity assets")
+    parser.add_argument("--n-fx", type=int, default=2, help="外汇资产数量 / Number of FX assets")
+    parser.add_argument("--seed", type=int, default=42, help="随机种子 / Random seed")
+    parser.add_argument("--sparse-k", type=int, default=8, help="稀疏子集大小 / Sparse subset size")
     args = parser.parse_args()
 
     train_config = TrainConfig(

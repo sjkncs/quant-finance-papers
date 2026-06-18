@@ -16,10 +16,11 @@ Key features:
 """
 
 import argparse
+import logging
 import numpy as np
 import torch
 import time
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Optional
 from dataclasses import dataclass
 
 from data import (
@@ -35,6 +36,8 @@ from model import (
     Trajectory,
     TrajectoryStep,
 )
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -186,7 +189,7 @@ def sample_trajectory(
 
 def train_epoch(
     grpo: LambdaExecGRPO,
-    orders_df,
+    orders_df: "pd.DataFrame",
     config: TrainingConfig,
     epoch: int,
 ) -> Dict[str, float]:
@@ -336,16 +339,29 @@ def run_ablation(config: TrainingConfig) -> Dict[str, Dict[str, float]]:
     return results
 
 
-def main():
-    parser = argparse.ArgumentParser(description="Lambda-ExecGRPO Training")
+def main() -> None:
+    """Main entry point for the Lambda-ExecGRPO training pipeline."""
+    parser = argparse.ArgumentParser(description="Lambda-ExecGRPO Training / Lambda-ExecGRPO训练与评估流水线")
     parser.add_argument("--mode", type=str, default="train",
-                        choices=["train", "eval", "compare", "ablation"])
-    parser.add_argument("--num_orders", type=int, default=2000)
-    parser.add_argument("--num_epochs", type=int, default=30)
-    parser.add_argument("--num_trajectories", type=int, default=8)
-    parser.add_argument("--hidden_dim", type=int, default=256)
-    parser.add_argument("--seed", type=int, default=42)
+                        choices=["train", "eval", "compare", "ablation"],
+                        help="运行模式: train=训练, eval=评估, compare=基线对比, ablation=消融实验")
+    parser.add_argument("--num_orders", type=int, default=2000,
+                        help="生成的训练订单数量 (默认: 2000)")
+    parser.add_argument("--num_epochs", type=int, default=30,
+                        help="训练轮数 (默认: 30)")
+    parser.add_argument("--num_trajectories", type=int, default=8,
+                        help="每个订单的采样轨迹数G (默认: 8)")
+    parser.add_argument("--hidden_dim", type=int, default=256,
+                        help="策略网络隐藏层维度 (默认: 256)")
+    parser.add_argument("--seed", type=int, default=42,
+                        help="随机种子 (默认: 42)")
     args = parser.parse_args()
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(message)s",
+        datefmt="%H:%M:%S",
+    )
 
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
@@ -358,15 +374,15 @@ def main():
     )
 
     if args.mode == "train":
-        print("=" * 60)
-        print("Lambda-ExecGRPO Training Pipeline")
-        print("=" * 60)
+        logger.info("=" * 60)
+        logger.info("Lambda-ExecGRPO Training Pipeline")
+        logger.info("=" * 60)
 
         # Generate data
         orders = generate_synthetic_orders(
             OrderConfig(num_orders=args.num_orders, seed=args.seed)
         )
-        print(f"Generated {len(orders)} training orders")
+        logger.info(f"Generated {len(orders)} training orders")
 
         # Initialize model and trainer
         policy = ExecutionPolicy(
@@ -381,7 +397,7 @@ def main():
         )
 
         total_params = sum(p.numel() for p in policy.parameters())
-        print(f"Policy parameters: {total_params:,}")
+        logger.info(f"Policy parameters: {total_params:,}")
 
         # Training loop
         start_time = time.time()
@@ -389,21 +405,21 @@ def main():
             metrics = train_epoch(grpo, orders, config, epoch)
             if (epoch + 1) % 5 == 0 or epoch == 0:
                 elapsed = time.time() - start_time
-                print(f"Epoch {epoch+1:3d}/{config.num_epochs} | "
+                logger.info(f"Epoch {epoch+1:3d}/{config.num_epochs} | "
                       f"Loss: {metrics['avg_loss']:+.4f} | "
                       f"Reward: {metrics['avg_reward']:+.4f} | "
                       f"Time: {elapsed:.1f}s")
 
         # Final evaluation
         eval_metrics = evaluate_policy(policy, orders, num_eval_orders=200)
-        print(f"\nFinal Evaluation:")
-        print(f"  Mean IS: {eval_metrics['mean_is_bps']:.2f} bps")
-        print(f"  Sharpe: {eval_metrics['sharpe']:.3f}")
+        logger.info(f"Final Evaluation:")
+        logger.info(f"  Mean IS: {eval_metrics['mean_is_bps']:.2f} bps")
+        logger.info(f"  Sharpe: {eval_metrics['sharpe']:.3f}")
 
     elif args.mode == "compare":
-        print("=" * 60)
-        print("Baseline Comparison")
-        print("=" * 60)
+        logger.info("=" * 60)
+        logger.info("Baseline Comparison")
+        logger.info("=" * 60)
 
         orders = generate_synthetic_orders(
             OrderConfig(num_orders=500, seed=args.seed)
@@ -411,7 +427,7 @@ def main():
 
         # TWAP baseline
         twap_results = run_baseline_twap(orders, num_orders=200)
-        print(f"\nTWAP: IS={twap_results['mean_is_bps']:.2f} bps, "
+        logger.info(f"TWAP: IS={twap_results['mean_is_bps']:.2f} bps, "
               f"Sharpe={twap_results['sharpe']:.3f}")
 
         # Train and evaluate lambda-ExecGRPO
@@ -424,20 +440,20 @@ def main():
         for epoch in range(20):
             train_epoch(grpo, orders, config, epoch)
         grpo_metrics = evaluate_policy(policy, orders, num_eval_orders=200)
-        print(f"Lambda-ExecGRPO: IS={grpo_metrics['mean_is_bps']:.2f} bps, "
+        logger.info(f"Lambda-ExecGRPO: IS={grpo_metrics['mean_is_bps']:.2f} bps, "
               f"Sharpe={grpo_metrics['sharpe']:.3f}")
 
     elif args.mode == "ablation":
-        print("=" * 60)
-        print("Ablation Study")
-        print("=" * 60)
+        logger.info("=" * 60)
+        logger.info("Ablation Study")
+        logger.info("=" * 60)
         results = run_ablation(config)
         for name, metrics in results.items():
-            print(f"\n{name}:")
+            logger.info(f"{name}:")
             for k, v in metrics.items():
-                print(f"  {k}: {v:.4f}")
+                logger.info(f"  {k}: {v:.4f}")
 
-    print("\nDone.")
+    logger.info("Done.")
 
 
 if __name__ == "__main__":

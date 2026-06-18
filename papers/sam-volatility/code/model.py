@@ -231,6 +231,7 @@ class SkipConnection(nn.Module):
         self.proj = nn.Linear(input_dim, hidden_dim)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Pass input through unchanged (identity skip connection)."""
         return x
 
 
@@ -329,7 +330,18 @@ class NoArbitrageRegularizer:
 
     @staticmethod
     def _bs_call(S, K, T, r, sigma):
-        """Differentiable Black-Scholes call price using torch."""
+        """Differentiable Black-Scholes call price using torch tensors.
+
+        Args:
+            S: underlying price (float or Tensor)
+            K: strike price (Tensor)
+            T: time to maturity (float)
+            r: risk-free rate (float)
+            sigma: implied volatility (Tensor)
+
+        Returns:
+            Call option price (Tensor).
+        """
         T = max(T, 1e-8)
         d1 = (torch.log(S / K + 1e-8) + (r + 0.5 * sigma ** 2) * T) / (
             sigma * np.sqrt(T) + 1e-8

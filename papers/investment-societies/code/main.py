@@ -11,6 +11,7 @@ Implements the complete InvestSoT pipeline:
 import os
 import sys
 import argparse
+import logging
 import numpy as np
 import torch
 # Disable torch.compile/dynamo to avoid MemoryError from sympy on Python 3.14
@@ -18,6 +19,8 @@ torch._dynamo.config.suppress_errors = True
 import torch.nn.functional as F
 from typing import Dict, List, Tuple
 from collections import Counter
+
+logger = logging.getLogger(__name__)
 
 from data import (
     InvestmentDataGenerator,
@@ -273,18 +276,18 @@ def run_full_experiment(
     torch.manual_seed(seed)
     np.random.seed(seed)
 
-    print("=" * 70)
-    print("InvestSoT: Investment Societies of Thought - Full Experiment")
-    print("=" * 70)
+    logger.info("=" * 70)
+    logger.info("InvestSoT: Investment Societies of Thought - Full Experiment")
+    logger.info("=" * 70)
 
     # Generate data
-    print("\n[1/6] Generating synthetic investment data...")
+    logger.info("[1/6] Generating synthetic investment data...")
     gen = InvestmentDataGenerator(config)
     debates = gen.generate_debates()
     qa_list = gen.generate_financial_qa()
 
-    print(f"  Debates: {len(debates)}")
-    print(f"  QA pairs: {len(qa_list)}")
+    logger.info("  Debates: %d", len(debates))
+    logger.info("  QA pairs: %d", len(qa_list))
 
     # Prepare training data
     sft_data = prepare_sft_data(debates, input_dim, seed)
@@ -307,37 +310,37 @@ def run_full_experiment(
     trainer = InvestSoTTrainer(model, diversity_alpha=0.3, lr=1e-3)
 
     # Phase 1: SFT
-    print("\n[2/6] Phase 1: Supervised fine-tuning on debate transcripts...")
+    logger.info("[2/6] Phase 1: Supervised fine-tuning on debate transcripts...")
     sft_losses = trainer.train_phase1_sft(train_sft, n_epochs=phase1_epochs)
     eval_after_p1 = evaluate_model(model, eval_sft)
-    print(f"  After Phase 1: Acc={eval_after_p1['accuracy']:.4f}, ECE={eval_after_p1['ece']:.4f}")
+    logger.info("  After Phase 1: Acc=%.4f, ECE=%.4f", eval_after_p1['accuracy'], eval_after_p1['ece'])
 
     # Phase 2: RL with scaffolding
-    print("\n[3/6] Phase 2: RL with scaffolding diversity reward...")
+    logger.info("[3/6] Phase 2: RL with scaffolding diversity reward...")
     rl_rewards = trainer.train_phase2_rl(train_rl, n_steps=phase2_steps)
     eval_after_p2 = evaluate_model(model, eval_rl)
-    print(f"  After Phase 2: Acc={eval_after_p2['accuracy']:.4f}, ECE={eval_after_p2['ece']:.4f}")
+    logger.info("  After Phase 2: Acc=%.4f, ECE=%.4f", eval_after_p2['accuracy'], eval_after_p2['ece'])
 
     # Phase 3: Self-play debate
-    print("\n[4/6] Phase 3: Self-play debate training...")
+    logger.info("[4/6] Phase 3: Self-play debate training...")
     sp_losses = trainer.train_phase3_selfplay(train_rl, n_rounds=phase3_rounds)
     eval_after_p3 = evaluate_model(model, eval_rl)
-    print(f"  After Phase 3: Acc={eval_after_p3['accuracy']:.4f}, ECE={eval_after_p3['ece']:.4f}")
+    logger.info("  After Phase 3: Acc=%.4f, ECE=%.4f", eval_after_p3['accuracy'], eval_after_p3['ece'])
 
     # Mechanistic analysis
-    print("\n[5/6] Running mechanistic interpretability analysis...")
+    logger.info("[5/6] Running mechanistic interpretability analysis...")
     analysis = run_mechanistic_analysis(model, eval_sft, input_dim)
 
-    print(f"  Perspective Variance: {analysis['perspective_variance']:.6f}")
-    print(f"  Attention Clusters: {analysis['clusters']}")
-    print(f"  Intervention Effects:")
+    logger.info("  Perspective Variance: %.6f", analysis['perspective_variance'])
+    logger.info("  Attention Clusters: %s", analysis['clusters'])
+    logger.info("  Intervention Effects:")
     for expert, effect in analysis["intervention_effects"].items():
         pred_chg = "Yes" if effect["prediction_changed"] else "No"
         conf_chg = effect["confidence_change"]
-        print(f"    {expert}: pred_changed={pred_chg}, conf_change={conf_chg:+.4f}")
+        logger.info("    %s: pred_changed=%s, conf_change=%+.4f", expert, pred_chg, conf_chg)
 
     # Baseline comparison
-    print("\n[6/6] Baseline comparison (standard RL without InvestSoT)...")
+    logger.info("[6/6] Baseline comparison (standard RL without InvestSoT)...")
     baseline_model = MultiExpertReasoningModel(
         input_dim=input_dim,
         hidden_dim=hidden_dim,
@@ -350,11 +353,11 @@ def run_full_experiment(
     baseline_analysis = run_mechanistic_analysis(baseline_model, eval_sft, input_dim)
 
     # Final results
-    print("\n" + "=" * 70)
-    print("RESULTS SUMMARY")
-    print("=" * 70)
-    print(f"{'Metric':<30} {'InvestSoT':>15} {'Baseline':>15} {'Improvement':>15}")
-    print("-" * 70)
+    logger.info("=" * 70)
+    logger.info("RESULTS SUMMARY")
+    logger.info("=" * 70)
+    logger.info("%-30s %15s %15s %15s", "Metric", "InvestSoT", "Baseline", "Improvement")
+    logger.info("-" * 70)
 
     metrics = [
         ("Accuracy", eval_after_p3["accuracy"], eval_baseline["accuracy"]),
@@ -365,34 +368,38 @@ def run_full_experiment(
     for name, invest_val, base_val in metrics:
         if "ECE" in name:
             impr = base_val - invest_val  # Lower is better
-            print(f"{name:<30} {invest_val:>15.4f} {base_val:>15.4f} {impr:>+15.4f}")
+            logger.info("%-30s %15.4f %15.4f %+.4f", name, invest_val, base_val, impr)
         else:
             impr = invest_val - base_val
-            print(f"{name:<30} {invest_val:>15.4f} {base_val:>15.4f} {impr:>+15.4f}")
+            logger.info("%-30s %15.4f %15.4f %+.4f", name, invest_val, base_val, impr)
 
     # Cross-asset analysis
-    print("\nCross-asset performance:")
+    logger.info("Cross-asset performance:")
     for asset_class in AssetClass:
         asset_eval = [s for s in eval_rl if True]  # All data (simplified)
         asset_result = evaluate_model(model, asset_eval[:5])
-        print(f"  {asset_class.value}: Acc={asset_result['accuracy']:.4f}")
+        logger.info("  %s: Acc=%.4f", asset_class.value, asset_result['accuracy'])
 
-    print("=" * 70)
+    logger.info("=" * 70)
 
 
 def main():
     """Entry point: parse arguments and run experiment."""
-    parser = argparse.ArgumentParser(description="InvestSoT Training and Evaluation")
-    parser.add_argument("--debates-per-asset", type=int, default=15, help="Debates per asset class")
-    parser.add_argument("--qa-per-asset", type=int, default=20, help="QA pairs per asset class")
-    parser.add_argument("--input-dim", type=int, default=32, help="Input feature dimension")
-    parser.add_argument("--hidden-dim", type=int, default=128, help="Hidden dimension")
-    parser.add_argument("--n-heads", type=int, default=8, help="Number of attention heads")
-    parser.add_argument("--n-layers", type=int, default=3, help="Number of transformer layers")
-    parser.add_argument("--phase1-epochs", type=int, default=5, help="Phase 1 SFT epochs")
-    parser.add_argument("--phase2-steps", type=int, default=60, help="Phase 2 RL steps")
-    parser.add_argument("--phase3-rounds", type=int, default=30, help="Phase 3 self-play rounds")
-    parser.add_argument("--seed", type=int, default=42, help="Random seed")
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    )
+    parser = argparse.ArgumentParser(description="InvestSoT Training and Evaluation / InvestSoT训练与评估")
+    parser.add_argument("--debates-per-asset", type=int, default=15, help="每资产类别辩论数 / Debates per asset class")
+    parser.add_argument("--qa-per-asset", type=int, default=20, help="每资产类别QA对数 / QA pairs per asset class")
+    parser.add_argument("--input-dim", type=int, default=32, help="输入特征维度 / Input feature dimension")
+    parser.add_argument("--hidden-dim", type=int, default=128, help="隐藏层维度 / Hidden dimension")
+    parser.add_argument("--n-heads", type=int, default=8, help="注意力头数量 / Number of attention heads")
+    parser.add_argument("--n-layers", type=int, default=3, help="Transformer层数 / Number of transformer layers")
+    parser.add_argument("--phase1-epochs", type=int, default=5, help="阶段1 SFT训练轮数 / Phase 1 SFT epochs")
+    parser.add_argument("--phase2-steps", type=int, default=60, help="阶段2 RL训练步数 / Phase 2 RL steps")
+    parser.add_argument("--phase3-rounds", type=int, default=30, help="阶段3自我对弈轮数 / Phase 3 self-play rounds")
+    parser.add_argument("--seed", type=int, default=42, help="随机种子 / Random seed")
     args = parser.parse_args()
 
     config = DatasetConfig(

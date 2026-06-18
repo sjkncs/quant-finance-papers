@@ -63,7 +63,11 @@ class MultiResolutionDataGenerator:
         d = np.sqrt(np.diag(corr))
         corr = corr / np.outer(d, d)
         np.fill_diagonal(corr, 1.0)
-        L = np.linalg.cholesky(corr)
+        try:
+            L = np.linalg.cholesky(corr)
+        except np.linalg.LinAlgError:
+            corr += np.eye(self.n_assets) * 1e-6
+            L = np.linalg.cholesky(corr)
 
         # Regime process
         regime = np.zeros(self.n_days, dtype=int)
