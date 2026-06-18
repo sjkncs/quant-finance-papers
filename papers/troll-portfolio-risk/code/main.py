@@ -20,6 +20,23 @@ from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
 
+
+def seed_everything(seed: int = 42):
+    """Set all random seeds for reproducible experiments.
+
+    Args:
+        seed: The random seed value.
+    """
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
+
+# Device-agnostic setup: use GPU if available, otherwise CPU
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
 # Local imports
 from data import SyntheticPortfolioData, PortfolioConfig, PortfolioStateBuilder
 from model import (
@@ -118,8 +135,7 @@ def train_troll_risk(
     Returns:
         Dictionary of training results and metrics.
     """
-    torch.manual_seed(config.seed)
-    np.random.seed(config.seed)
+    seed_everything(config.seed)
 
     # Generate data
     data_gen = SyntheticPortfolioData(data_config, seed=config.seed)
@@ -139,7 +155,7 @@ def train_troll_risk(
         hidden_dim=config.hidden_dim,
         kl_weight=config.kl_weight,
         sparse_k=config.sparse_k,
-    )
+    ).to(device)
 
     # Optimizers
     actor_opt = torch.optim.Adam(agent.actor.parameters(), lr=config.lr_actor)
@@ -167,7 +183,7 @@ def train_troll_risk(
         ]
 
         # Episode state
-        prev_weights = torch.ones(n_assets) / n_assets
+        prev_weights = torch.ones(n_assets, device=device) / n_assets
         portfolio_value = 1.0
         peak_value = 1.0
         episode_reward_sum = 0.0
@@ -183,28 +199,28 @@ def train_troll_risk(
             if hist.shape[0] < 20:
                 hist = np.pad(hist, ((20 - hist.shape[0], 0), (0, 0)))
 
-            port_ret = float(np.sum(prev_weights.numpy() * episode_returns_slice[t]))
+            port_ret = float(np.sum(prev_weights.cpu().numpy() * episode_returns_slice[t]))
             port_vol = float(
-                np.std([np.sum(prev_weights.numpy() * episode_returns_slice[max(0, t - j)]) for j in range(min(20, t + 1))])
+                np.std([np.sum(prev_weights.cpu().numpy() * episode_returns_slice[max(0, t - j)]) for j in range(min(20, t + 1))])
             )
             portfolio_value *= 1 + port_ret
             peak_value = max(peak_value, portfolio_value)
             current_dd = (portfolio_value - peak_value) / peak_value
 
             state_np = state_builder.build_state(
-                hist, prev_weights.numpy(), port_ret, port_vol, current_dd
+                hist, prev_weights.cpu().numpy(), port_ret, port_vol, current_dd
             )
-            state = torch.tensor(state_np, dtype=torch.float32).unsqueeze(0)
+            state = torch.tensor(state_np, dtype=torch.float32, device=device).unsqueeze(0)
 
             # Compute mean returns and covariance from recent history
             recent = episode_returns_slice[max(0, t - 60) : t + 1]
-            mean_ret = torch.tensor(np.mean(recent, axis=0), dtype=torch.float32).unsqueeze(0)
+            mean_ret = torch.tensor(np.mean(recent, axis=0), dtype=torch.float32, device=device).unsqueeze(0)
             cov = compute_covariance_matrix(
                 episode_returns_slice[max(0, t - 60) : t + 1], window=60
             )
-            cov_tensor = torch.tensor(cov, dtype=torch.float32)
+            cov_tensor = torch.tensor(cov, dtype=torch.float32, device=device)
             hist_tensor = torch.tensor(
-                recent[-20:].reshape(1, -1, n_assets), dtype=torch.float32
+                recent[-20:].reshape(1, -1, n_assets), dtype=torch.float32, device=device
             )
 
             # Select action
@@ -225,7 +241,7 @@ def train_troll_risk(
 
             # Compute reward
             ret_tensor = torch.tensor(
-                episode_returns_slice[t], dtype=torch.float32
+                episode_returns_slice[t], dtype=torch.float32, device=device
             ).unsqueeze(0)
             reward = compute_portfolio_reward(
                 weights.unsqueeze(0), ret_tensor, prev_weights.unsqueeze(0),
@@ -407,6 +423,8 @@ def main():
     parser.add_argument("--seed", type=int, default=42, help="随机种子 / Random seed")
     parser.add_argument("--sparse-k", type=int, default=8, help="稀疏子集大小 / Sparse subset size")
     args = parser.parse_args()
+
+    seed_everything(args.seed)
 
     train_config = TrainConfig(
         n_episodes=args.episodes,

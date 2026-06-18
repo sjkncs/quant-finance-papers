@@ -184,8 +184,12 @@ class SyntheticPortfolioData:
             "daily_drifts": daily_drifts,
         }
 
-    def get_splits(self) -> Tuple[Dict, Dict, Dict]:
+    def get_splits(self, seed: Optional[int] = None) -> Tuple[Dict, Dict, Dict]:
         """Split data into train/validation/test sets.
+
+        Args:
+            seed: Optional seed for reproducible splitting (unused since split
+                  is deterministic based on ratios, but included for API consistency).
 
         Returns:
             Tuple of (train_data, val_data, test_data) dictionaries.

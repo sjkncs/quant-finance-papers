@@ -228,10 +228,11 @@ class MarketThinkBench:
             return 2 if regime == 0 else 0
 
     def get_split(
-        self, train_ratio: float = 0.7, val_ratio: float = 0.15
+        self, train_ratio: float = 0.7, val_ratio: float = 0.15, seed: int = 42
     ) -> Tuple[List[MarketScenario], List[MarketScenario], List[MarketScenario]]:
         n = len(self.scenarios)
-        idx = self.rng.permutation(n)
+        rng = np.random.default_rng(seed)
+        idx = rng.permutation(n)
         n_train = int(n * train_ratio)
         n_val = int(n * val_ratio)
         train = [self.scenarios[i] for i in idx[:n_train]]
@@ -253,6 +254,7 @@ class TTSDataset(Dataset):
         lookback: int = 60,
         horizon: int = 60,
         n_assets: int = 15,
+        seed: int = 42,
     ):
         self.log_returns = torch.tensor(log_returns, dtype=torch.float32)
         self.volatility = torch.tensor(volatility, dtype=torch.float32)
@@ -262,6 +264,7 @@ class TTSDataset(Dataset):
         self.lookback = lookback
         self.horizon = horizon
         self.n_assets = n_assets
+        self.rng = np.random.default_rng(seed)
 
     def __len__(self) -> int:
         return len(self.scenarios)
@@ -270,7 +273,7 @@ class TTSDataset(Dataset):
         scenario = self.scenarios[idx]
         # Pick a random start point with enough future data
         max_start = len(self.log_returns) - self.lookback - self.horizon
-        start = np.random.randint(0, max_start)
+        start = self.rng.integers(0, max_start)
 
         market_state = self.log_returns[start : start + self.lookback]  # (lookback, n_assets)
         future = self.log_returns[
@@ -321,12 +324,15 @@ def build_dataloaders(
     bench = MarketThinkBench(n_scenarios=n_scenarios, seed=seed)
     train_scenarios, val_scenarios, test_scenarios = bench.get_split()
 
-    train_ds = TTSDataset(log_returns, volatility, regime_seq, vix, train_scenarios)
-    val_ds = TTSDataset(log_returns, volatility, regime_seq, vix, val_scenarios)
-    test_ds = TTSDataset(log_returns, volatility, regime_seq, vix, test_scenarios)
+    train_ds = TTSDataset(log_returns, volatility, regime_seq, vix, train_scenarios, seed=seed)
+    val_ds = TTSDataset(log_returns, volatility, regime_seq, vix, val_scenarios, seed=seed + 1)
+    test_ds = TTSDataset(log_returns, volatility, regime_seq, vix, test_scenarios, seed=seed + 2)
 
+    # Use a seeded generator for deterministic shuffling
+    g = torch.Generator()
+    g.manual_seed(seed)
     train_loader = torch.utils.data.DataLoader(
-        train_ds, batch_size=batch_size, shuffle=True, drop_last=True
+        train_ds, batch_size=batch_size, shuffle=True, drop_last=True, generator=g
     )
     val_loader = torch.utils.data.DataLoader(
         val_ds, batch_size=batch_size, shuffle=False

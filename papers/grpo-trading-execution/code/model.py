@@ -97,6 +97,7 @@ class ExecutionPolicy(nn.Module):
         log_std = self.log_std.expand_as(mean)
         return mean, log_std
 
+    @torch.no_grad()
     def sample_action(
         self, state: torch.Tensor
     ) -> Tuple[torch.Tensor, torch.Tensor]:

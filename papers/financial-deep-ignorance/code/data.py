@@ -344,12 +344,15 @@ class FinancialDocumentGenerator:
         return documents
 
     def get_train_val_test_split(
-        self, documents: List[FinancialDocument]
+        self, documents: List[FinancialDocument], seed: Optional[int] = None
     ) -> Tuple[List[FinancialDocument], List[FinancialDocument], List[FinancialDocument]]:
         """Split documents into train/val/test sets (70/15/15).
 
         Args:
             documents: Full list of documents.
+            seed: Optional seed for reproducible splitting (unused since the
+                  document list is already shuffled deterministically during generation,
+                  but included for API consistency).
 
         Returns:
             Tuple of (train, val, test) document lists.

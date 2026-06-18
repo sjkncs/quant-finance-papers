@@ -273,6 +273,7 @@ class MMRFModel(nn.Module):
             n += 1
         return total_loss / max(n, 1)
 
+    @torch.no_grad()
     def get_memory_estimate(self, batch_size: int = 32, seq_len: int = 30) -> Dict[str, float]:
         """Estimate memory usage for different window widths."""
         d = self.d_model

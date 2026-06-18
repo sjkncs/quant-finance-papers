@@ -536,11 +536,19 @@ class TTSFullModel(nn.Module):
             logits = self.answer_head(stats)
             return {"logits": logits, "trajectories": traj_stack}
 
+    @torch.no_grad()
     def _extract_stats(self, traj_stack: torch.Tensor) -> torch.Tensor:
         """Extract statistical features from trajectory ensemble.
 
-        traj_stack: (B, N, T, A)
-        Returns: (B, T*A + 16) feature vector
+        Computes 16 summary statistics from the trajectory ensemble including
+        mean/std/min/max returns, volatility, tail risk measures, and dispersion.
+
+        Args:
+            traj_stack: (B, N, T, A) — batch of N trajectories, T timesteps, A assets
+
+        Returns:
+            (B, T*A + 16) feature vector concatenating flattened mean trajectory
+            with 16 ensemble statistics.
         """
         B, N, T, A = traj_stack.shape
 

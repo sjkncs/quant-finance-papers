@@ -32,6 +32,17 @@ from data import (
 from model import SAMVolModel
 
 
+def seed_everything(seed: int = 42):
+    """Set all random seeds for reproducibility across NumPy, PyTorch CPU, and CUDA."""
+    import random
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
+
 def compute_rmse(predicted: torch.Tensor, target: torch.Tensor) -> float:
     """Compute root mean squared error of implied volatility."""
     return torch.sqrt(((predicted - target) ** 2).mean()).item()
@@ -395,8 +406,7 @@ def main() -> None:
                         help="随机种子 (默认: 42)")
     args = parser.parse_args()
 
-    torch.manual_seed(args.seed)
-    np.random.seed(args.seed)
+    seed_everything(args.seed)
 
     if args.mode == "train":
         run_training(args)

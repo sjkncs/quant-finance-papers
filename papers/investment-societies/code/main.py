@@ -22,6 +22,23 @@ from collections import Counter
 
 logger = logging.getLogger(__name__)
 
+
+def seed_everything(seed: int = 42):
+    """Set all random seeds for reproducible experiments.
+
+    Args:
+        seed: The random seed value.
+    """
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
+
+# Device-agnostic setup: use GPU if available, otherwise CPU
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
 from data import (
     InvestmentDataGenerator,
     DatasetConfig,
@@ -152,7 +169,7 @@ def evaluate_model(
 
     with torch.no_grad():
         for sample in eval_data:
-            x = sample["features"].unsqueeze(0)  # (1, seq_len, input_dim)
+            x = sample["features"].unsqueeze(0).to(device)  # (1, seq_len, input_dim)
             output = model(x)
             pred = torch.argmax(output["classification"], dim=-1).item()
             conf = output["confidence"].item()
@@ -211,7 +228,7 @@ def run_mechanistic_analysis(
     all_variances = []
     with torch.no_grad():
         for sample in eval_data[:20]:  # Sample subset
-            x = sample["features"].unsqueeze(0)
+            x = sample["features"].unsqueeze(0).to(device)
             output = model(x, return_attention=True)
             pv, _ = analyzer.compute_perspective_variance(output["hidden_states"])
             all_variances.append(pv)
@@ -236,7 +253,7 @@ def run_mechanistic_analysis(
 
     with torch.no_grad():
         sample = eval_data[0]
-        x = sample["features"].unsqueeze(0)
+        x = sample["features"].unsqueeze(0).to(device)
         baseline_output = model(x)
         baseline_pred = torch.argmax(baseline_output["classification"], dim=-1).item()
         baseline_conf = baseline_output["confidence"].item()
@@ -273,8 +290,7 @@ def run_full_experiment(
     Generates data, trains through all three phases, evaluates,
     and runs mechanistic analysis.
     """
-    torch.manual_seed(seed)
-    np.random.seed(seed)
+    seed_everything(seed)
 
     logger.info("=" * 70)
     logger.info("InvestSoT: Investment Societies of Thought - Full Experiment")
@@ -306,7 +322,7 @@ def run_full_experiment(
         hidden_dim=hidden_dim,
         n_heads=n_heads,
         n_layers=n_layers,
-    )
+    ).to(device)
     trainer = InvestSoTTrainer(model, diversity_alpha=0.3, lr=1e-3)
 
     # Phase 1: SFT
@@ -346,7 +362,7 @@ def run_full_experiment(
         hidden_dim=hidden_dim,
         n_heads=n_heads,
         n_layers=n_layers,
-    )
+    ).to(device)
     baseline_trainer = InvestSoTTrainer(baseline_model, diversity_alpha=0.0, lr=1e-3)
     baseline_trainer.train_phase2_rl(train_rl, n_steps=phase2_steps)
     eval_baseline = evaluate_model(baseline_model, eval_rl)
@@ -401,6 +417,8 @@ def main():
     parser.add_argument("--phase3-rounds", type=int, default=30, help="阶段3自我对弈轮数 / Phase 3 self-play rounds")
     parser.add_argument("--seed", type=int, default=42, help="随机种子 / Random seed")
     args = parser.parse_args()
+
+    seed_everything(args.seed)
 
     config = DatasetConfig(
         n_debates_per_asset=args.debates_per_asset,

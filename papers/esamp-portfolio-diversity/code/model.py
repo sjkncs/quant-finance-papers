@@ -153,6 +153,7 @@ class PortfolioModel(nn.Module):
         weights = self.head(deep)
         return weights, shallow, deep
 
+    @torch.no_grad()
     def generate_with_noise(
         self, x: torch.Tensor, noise_scale: float = 0.1
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
@@ -202,6 +203,7 @@ class StrategyDistiller(nn.Module):
         """
         return self.net(shallow_features)
 
+    @torch.no_grad()
     def compute_novelty(
         self,
         shallow_features: torch.Tensor,

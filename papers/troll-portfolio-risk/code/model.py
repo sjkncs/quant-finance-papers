@@ -443,6 +443,7 @@ class TROLLRiskAgent(nn.Module):
         )
         self.n_assets = n_assets
 
+    @torch.no_grad()
     def act(
         self,
         state: torch.Tensor,
@@ -473,6 +474,7 @@ class TROLLRiskAgent(nn.Module):
             )
         return w_star, risk_info
 
+    @torch.no_grad()
     def compute_gae(
         self,
         rewards: torch.Tensor,

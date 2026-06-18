@@ -20,6 +20,23 @@ from collections import Counter
 
 logger = logging.getLogger(__name__)
 
+
+def seed_everything(seed: int = 42):
+    """Set all random seeds for reproducible experiments.
+
+    Args:
+        seed: The random seed value.
+    """
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
+
+# Device-agnostic setup: use GPU if available, otherwise CPU
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
 from data import (
     FinancialDocumentGenerator,
     DatasetConfig,
@@ -57,8 +74,7 @@ def train_classifier(
     Returns:
         Tuple of (trained classifier, tokenizer).
     """
-    torch.manual_seed(seed)
-    np.random.seed(seed)
+    seed_everything(seed)
 
     tokenizer = SimpleTokenizer(vocab_size=5000, max_seq_len=256)
     classifier = SemanticClassifier(vocab_size=5000, embed_dim=128, n_heads=4, n_layers=3)
@@ -372,6 +388,8 @@ def main():
     parser.add_argument("--epochs", type=int, default=15, help="训练轮数 / Training epochs")
     parser.add_argument("--seed", type=int, default=42, help="随机种子 / Random seed")
     args = parser.parse_args()
+
+    seed_everything(args.seed)
 
     config = DatasetConfig(
         docs_per_category_safe=args.docs_safe,

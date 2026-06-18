@@ -354,7 +354,23 @@ class RegimeAwareAgent:
         capital: float,
         equity_curve: List[float],
     ) -> TradeAction:
-        """Generate regime-aware trading decision."""
+        """Generate regime-aware trading decision.
+
+        Detects current market regime and selects appropriate strategy:
+        - Bull: Momentum strategy (trend-following)
+        - Bear: Mean reversion with reduced exposure + carry
+        - Crash: Cash / hedge (mostly bonds)
+        - Recovery: Aggressive momentum (increased exposure)
+        - Stagnation: Mean reversion with moderate exposure
+
+        Args:
+            returns_data: Asset returns matrix (days x assets).
+            capital: Current capital.
+            equity_curve: Historical equity values.
+
+        Returns:
+            TradeAction with regime-appropriate target weights.
+        """
         # Detect current regime
         portfolio_returns = returns_data[-120:].mean(axis=1) if returns_data.shape[0] >= 120 else returns_data.mean(axis=1)
         new_regime, transition = self.detector.detect_transition(
@@ -435,7 +451,20 @@ class EnsembleAgent:
         capital: float,
         equity_curve: List[float],
     ) -> TradeAction:
-        """Generate ensemble trading decision."""
+        """Generate ensemble trading decision by combining multiple sub-agents.
+
+        Runs momentum (40-day), momentum (120-day), mean-reversion, and
+        regime-aware sub-agents, then equal-weights their target allocations.
+        Applies risk management limits and identifies the dominant strategy.
+
+        Args:
+            returns_data: Asset returns matrix (days x assets).
+            capital: Current capital.
+            equity_curve: Historical equity values.
+
+        Returns:
+            TradeAction with ensemble-averaged weights.
+        """
         # Get signals from all sub-agents
         actions = [
             self.momentum.decide(returns_data, capital, equity_curve),

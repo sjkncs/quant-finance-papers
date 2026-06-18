@@ -30,6 +30,17 @@ from data import (
 from model import MMRFModel, FullContextARModel
 
 
+def seed_everything(seed: int = 42):
+    """Set all random seeds for reproducibility across NumPy, PyTorch CPU, and CUDA."""
+    import random
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
+
 def compute_directional_accuracy(
     predictions: Dict[str, torch.Tensor],
     targets: Dict[str, torch.Tensor],
@@ -405,8 +416,7 @@ def main() -> None:
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
 
-    torch.manual_seed(args.seed)
-    np.random.seed(args.seed)
+    seed_everything(args.seed)
 
     if args.mode == "train":
         run_training(args)

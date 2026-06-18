@@ -264,6 +264,7 @@ def generate_mean_variance_portfolio(
     returns: pd.DataFrame,
     target_return: Optional[float] = None,
     lambda_risk: float = 1.0,
+    seed: int = 42,
 ) -> np.ndarray:
     """Generate a mean-variance optimal portfolio.
 
@@ -273,6 +274,7 @@ def generate_mean_variance_portfolio(
         returns: DataFrame of asset returns.
         target_return: Optional target annual return.
         lambda_risk: Risk aversion parameter.
+        seed: Random seed for deterministic behavior.
 
     Returns:
         Optimal weight vector.
@@ -304,7 +306,7 @@ def generate_mean_variance_portfolio(
     return weights
 
 
-def generate_risk_parity_portfolio(returns: pd.DataFrame) -> np.ndarray:
+def generate_risk_parity_portfolio(returns: pd.DataFrame, seed: int = 42) -> np.ndarray:
     """Generate a risk parity portfolio.
 
     Equalizes risk contribution across all assets using iterative
@@ -312,6 +314,7 @@ def generate_risk_parity_portfolio(returns: pd.DataFrame) -> np.ndarray:
 
     Args:
         returns: DataFrame of asset returns.
+        seed: Random seed for deterministic behavior.
 
     Returns:
         Risk parity weight vector.

@@ -40,6 +40,25 @@ from model import (
 logger = logging.getLogger(__name__)
 
 
+def seed_everything(seed: int = 42) -> None:
+    """Set all random seeds for deterministic reproducibility.
+
+    Applies to NumPy, PyTorch (CPU and CUDA), and CuDNN backend settings.
+
+    Args:
+        seed: The random seed value to use globally.
+    """
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
+
+# Device-agnostic setup: use GPU if available, otherwise CPU
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+
 @dataclass
 class TrainingConfig:
     """Training hyperparameters."""
@@ -363,8 +382,9 @@ def main() -> None:
         datefmt="%H:%M:%S",
     )
 
-    np.random.seed(args.seed)
-    torch.manual_seed(args.seed)
+    seed_everything(args.seed)
+    logger.info(f"Using device: {device}")
+    logger.info(f"Random seed: {args.seed}")
 
     config = TrainingConfig(
         hidden_dim=args.hidden_dim,

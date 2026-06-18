@@ -75,9 +75,17 @@ class IntradayVolumeProfile:
         profile = profile / profile.sum()
         return profile
 
-    def sample_volume(self, interval_idx: int, total_daily_volume: float) -> float:
-        """Sample volume for a specific intraday interval."""
-        noise = np.random.lognormal(0, 0.3)
+    def sample_volume(self, interval_idx: int, total_daily_volume: float, rng: np.random.RandomState = None) -> float:
+        """Sample volume for a specific intraday interval.
+
+        Args:
+            interval_idx: Index of the intraday interval.
+            total_daily_volume: Total daily volume to distribute.
+            rng: Seeded random state for deterministic sampling.
+        """
+        if rng is None:
+            rng = np.random.RandomState()
+        noise = rng.lognormal(0, 0.3)
         return total_daily_volume * self.profile[interval_idx] * noise
 
 
@@ -135,7 +143,7 @@ class MarketSimulator:
 
         # Update volume
         interval_vol = self.volume_profile.sample_volume(
-            interval_idx, self.daily_volume
+            interval_idx, self.daily_volume, rng=self.rng
         )
         self.state.recent_volume = np.roll(self.state.recent_volume, 1)
         self.state.recent_volume[0] = interval_vol

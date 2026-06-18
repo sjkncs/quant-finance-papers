@@ -332,7 +332,10 @@ def build_samvol_dataloaders(
     val_ds = SAMVolDataset(n_surfaces=n_val, seed=seed + 1)
     test_ds = SAMVolDataset(n_surfaces=n_test, seed=seed + 2)
 
-    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, drop_last=True)
+    # Use a seeded generator for deterministic shuffling
+    g = torch.Generator()
+    g.manual_seed(seed)
+    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, drop_last=True, generator=g)
     val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False)
     test_loader = DataLoader(test_ds, batch_size=batch_size, shuffle=False)
 

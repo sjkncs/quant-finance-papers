@@ -165,6 +165,7 @@ class PerspectiveVarianceAnalyzer:
         pass
 
     @staticmethod
+    @torch.no_grad()
     def compute_perspective_variance(
         hidden_states: List[torch.Tensor],
     ) -> Tuple[float, np.ndarray]:
@@ -268,6 +269,7 @@ class CausalIntervention:
     def __init__(self, model: MultiExpertReasoningModel):
         self.model = model
 
+    @torch.no_grad()
     def ablate_expert_cluster(
         self,
         expert_idx: int,

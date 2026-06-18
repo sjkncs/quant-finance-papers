@@ -470,6 +470,7 @@ class SAMVolModel(nn.Module):
 
         return butterfly_penalty + calendar_penalty
 
+    @torch.no_grad()
     def count_arbitrage_violations(
         self, iv_surface: torch.Tensor, n_k: int, n_tau: int
     ) -> float:

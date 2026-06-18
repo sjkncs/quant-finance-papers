@@ -372,7 +372,10 @@ def build_mmrf_dataloaders(
     val_ds = MultiResolutionDataset(val_data, n_assets, window_width=window_width)
     test_ds = MultiResolutionDataset(test_data, n_assets, window_width=window_width)
 
-    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, drop_last=True)
+    # Use a seeded generator for deterministic shuffling
+    g = torch.Generator()
+    g.manual_seed(seed)
+    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, drop_last=True, generator=g)
     val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False)
     test_loader = DataLoader(test_ds, batch_size=batch_size, shuffle=False)
 
